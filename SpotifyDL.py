@@ -86,7 +86,13 @@ class DownloadWorker(QThread):
             command.append("--user-auth")
         
         try:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                **({'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {})
+            )
             
             total_tracks = 1
             current_track = 0
@@ -495,7 +501,7 @@ class SpotifyDownloaderApp(QMainWindow):
         about_label.setStyleSheet("color: #1DB954;")
         about_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        version_label = QLabel("Version 1.6.2 BETA")
+        version_label = QLabel("Version 1.6.3 BETA")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         description = QLabel(
