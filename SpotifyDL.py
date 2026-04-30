@@ -21,13 +21,14 @@ class DownloadWorker(QThread):
     update_progress = pyqtSignal(int, int)
     download_complete = pyqtSignal(bool, str, str, str)
     
-    def __init__(self, url, download_path, quality, format_type, use_auth):
+    def __init__(self, url, download_path, quality, format_type, use_auth, auth_token=""):
         super().__init__()
         self.url = url
         self.download_path = download_path
         self.quality = quality
         self.format_type = format_type
         self.use_auth = use_auth
+        self.auth_token = auth_token
         
     def run(self):
         if not self.url:
@@ -84,6 +85,9 @@ class DownloadWorker(QThread):
             
         if self.use_auth:
             command.append("--user-auth")
+
+        if self.auth_token and self.auth_token.strip():
+            command.extend(["--auth-token", self.auth_token.strip()])
         
         try:
             process = subprocess.Popen(
@@ -139,7 +143,7 @@ class SpotifyDownloaderApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Spotify Downloader Pro")
-        self.setMinimumSize(800, 700)
+        self.setMinimumSize(800, 765)
         
         # Create app data directory in %APPDATA%
         self.app_data_dir = os.path.join(os.getenv('APPDATA'), "SpotifyDownloaderPro")
@@ -276,7 +280,21 @@ class SpotifyDownloaderApp(QMainWindow):
                 background-color: #1DB954;
                 color: white;
             }
+            QLineEdit[echoMode="4"] {  /* Password mode for the auth token */
+                background-color: #282828;
+                color: #FFFFFF;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QLineEdit, QComboBox {
+                padding: 8px 10px;
+            }
+            QCheckBox {
+                padding: 4px 0px;
+            }
         """)
+        
         
         self.init_ui()
         
@@ -310,6 +328,26 @@ class SpotifyDownloaderApp(QMainWindow):
         self.statusBar().addWidget(self.status_label)
         self.statusBar().setStyleSheet("background-color: #282828; color: #BBBBBB;")
         
+    def clean_spotify_url(self, url):
+        if not url:
+            return url
+        # Strip whitespace
+        url = url.strip()
+        # Remove everything after ?
+        if '?' in url:
+            url = url.split('?')[0]
+        # Remove everything after #
+        if '#' in url:
+            url = url.split('#')[0]
+        return url
+    
+    def on_url_edited(self):
+        current_text = self.url_entry.text()
+        cleaned = self.clean_spotify_url(current_text)
+        # Only update if actually changed
+        if cleaned != current_text:
+            self.url_entry.setText(cleaned)
+
     def create_download_tab(self):
         download_tab = QWidget()
         layout = QVBoxLayout(download_tab)
@@ -323,6 +361,7 @@ class SpotifyDownloaderApp(QMainWindow):
         url_label = QLabel("Spotify URL:")
         self.url_entry = QLineEdit()
         self.url_entry.setPlaceholderText("Enter Spotify track, album, playlist or artist URL")
+        self.url_entry.editingFinished.connect(self.on_url_edited)
         url_input_layout.addWidget(url_label)
         url_input_layout.addWidget(self.url_entry)
         url_layout.addLayout(url_input_layout)
@@ -359,29 +398,58 @@ class SpotifyDownloaderApp(QMainWindow):
         # Download options
         options_group = QGroupBox("Download Options")
         options_layout = QVBoxLayout(options_group)
-        
+        options_layout.setSpacing(12)
+        options_layout.setContentsMargins(12, 20, 12, 12)
+
+        # Format row
         format_layout = QHBoxLayout()
-        format_layout.addWidget(QLabel("Format:"))
+        format_layout.setSpacing(10)
+        format_label = QLabel("Format:")
+        format_label.setFixedWidth(90)
+        format_layout.addWidget(format_label)
         self.format_combo = QComboBox()
         self.format_combo.addItems(["mp3", "flac", "ogg", "m4a", "opus", "wav"])
+        self.format_combo.setMinimumHeight(32)
         format_layout.addWidget(self.format_combo)
-        
+        options_layout.addLayout(format_layout)
+
+        # Quality row
         quality_layout = QHBoxLayout()
-        quality_layout.addWidget(QLabel("Quality:"))
+        quality_layout.setSpacing(10)
+        quality_label = QLabel("Quality:")
+        quality_label.setFixedWidth(90)
+        quality_layout.addWidget(quality_label)
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["128k", "192k", "256k", "320k"])
-        self.quality_combo.setCurrentText("320k") # highest quality spotdl provides
+        self.quality_combo.setCurrentText("320k")
+        self.quality_combo.setMinimumHeight(32)
         quality_layout.addWidget(self.quality_combo)
-        
+        options_layout.addLayout(quality_layout)
+
+        # Auth checkbox row
         auth_layout = QHBoxLayout()
+        auth_layout.setContentsMargins(0, 4, 0, 4)
         self.auth_checkbox = QCheckBox("Use Spotify Authentication")
         self.auth_checkbox.setChecked(True)
+        self.auth_checkbox.setMinimumHeight(28)
         auth_layout.addWidget(self.auth_checkbox)
-        
-        options_layout.addLayout(format_layout)
-        options_layout.addLayout(quality_layout)
+        auth_layout.addStretch()
         options_layout.addLayout(auth_layout)
-        
+
+        # Token row
+        token_layout = QHBoxLayout()
+        token_layout.setSpacing(10)
+        token_label = QLabel("Access Token:")
+        token_label.setFixedWidth(90)
+        token_layout.addWidget(token_label)
+        self.auth_token_entry = QLineEdit()
+        self.auth_token_entry.setPlaceholderText("Paste your Spotify access token here (optional)")
+        self.auth_token_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self.auth_token_entry.setToolTip("Optional: Provide a Spotify access token for non premium users")
+        self.auth_token_entry.setMinimumHeight(32)
+        token_layout.addWidget(self.auth_token_entry)
+        options_layout.addLayout(token_layout)
+
         layout.addWidget(options_group)
         
         # Progress section
@@ -501,7 +569,7 @@ class SpotifyDownloaderApp(QMainWindow):
         about_label.setStyleSheet("color: #1DB954;")
         about_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        version_label = QLabel("Version 1.6.3 BETA")
+        version_label = QLabel("Version 1.6.4 BETA")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         description = QLabel(
@@ -551,6 +619,7 @@ class SpotifyDownloaderApp(QMainWindow):
             
     def start_download(self):
         url = self.url_entry.text()
+        url = self.clean_spotify_url(self.url_entry.text())
         if not url:
             QMessageBox.warning(self, "Warning", "Please enter a Spotify URL.")
             return
@@ -572,9 +641,10 @@ class SpotifyDownloaderApp(QMainWindow):
         quality = self.quality_combo.currentText()
         format_type = self.format_combo.currentText()
         use_auth = self.auth_checkbox.isChecked()
+        auth_token = self.auth_token_entry.text()
         
         # Start download in a separate thread
-        self.download_thread = DownloadWorker(url, download_path, quality, format_type, use_auth)
+        self.download_thread = DownloadWorker(url, download_path, quality, format_type, use_auth, auth_token)
         self.download_thread.update_console.connect(self.update_console)
         self.download_thread.update_progress.connect(self.update_progress)
         self.download_thread.download_complete.connect(self.download_finished)
